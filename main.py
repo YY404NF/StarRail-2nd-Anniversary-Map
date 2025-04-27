@@ -73,23 +73,41 @@ def process_avatar(qq_number, avatar_size=200, border=10):
     :param border: 边框宽度
     :return: 处理好的PIL.Image对象
     """
-    # 获取原始头像（自动处理缓存）
     avatar = fetch_avatar(qq_number)
-    # 调整尺寸
     avatar = avatar.resize((avatar_size, avatar_size))
-    # 生成圆形头像
     circular = create_circular_avatar(avatar, avatar_size)
-    # 添加边框
     return add_border(circular, border)
 
 
-def load_map_background(path):
-    """加载并处理地图背景
-    :param path: 背景图片路径
-    :return: PIL.Image对象
+def prepare_expanded_background(base_image_path, expand_pixels):
+    """准备扩展后的背景图（先扩展后调暗）
+    :param base_image_path: 原始背景图路径
+    :param expand_pixels: 四周扩展像素数
+    :return: (扩展调整后的背景图对象, 扩展像素数)
     """
-    map_img = Image.open(path).convert("RGBA")
-    return ImageEnhance.Brightness(map_img).enhance(0.7)
+    # 加载原始背景
+    original = Image.open(base_image_path).convert("RGBA")
+
+    # 创建扩展画布（暂时保持白色背景）
+    new_width = original.width + 2 * expand_pixels
+    new_height = original.height + 2 * expand_pixels
+    expanded_bg = Image.new("RGBA", (new_width, new_height), "white")
+
+    # 居中粘贴原始背景
+    expanded_bg.paste(original, (expand_pixels, expand_pixels))
+
+    # 调整整个画布亮度（包含扩展区域）
+    return ImageEnhance.Brightness(expanded_bg).enhance(0.7), expand_pixels
+
+
+def adjust_coordinates(x, y, expand_pixels):
+    """调整坐标到扩展后的坐标系
+    :param x: 原始X坐标
+    :param y: 原始Y坐标
+    :param expand_pixels: 扩展像素数
+    :return: (调整后的X坐标, 调整后的Y坐标)
+    """
+    return x + expand_pixels, y + expand_pixels
 
 
 def read_position_data(csv_path):
@@ -106,21 +124,29 @@ def read_position_data(csv_path):
 
 
 def main():
-    # 初始化地图
-    map_img = load_map_background("background.png")
+    # 配置参数
+    AVATAR_SIZE = 200
+    BORDER_SIZE = 10
+    EXPAND_PIXELS = (AVATAR_SIZE + 2 * BORDER_SIZE) // 2  # 自动计算扩展量
+
+    # 创建扩展并调暗后的背景
+    map_img, expand_offset = prepare_expanded_background("background.png", EXPAND_PIXELS)
 
     # 读取坐标数据
     positions = read_position_data("data.csv")
 
-    # 处理每个头像
+    # 渲染所有头像
     for qq, x, y in positions:
-        avatar_img = process_avatar(qq)
+        # 转换坐标系
+        adj_x, adj_y = adjust_coordinates(x, y, expand_offset)
+        # 处理头像
+        avatar_img = process_avatar(qq, AVATAR_SIZE, BORDER_SIZE)
         # 计算粘贴位置（居中）
-        position = (
-            x - avatar_img.width // 2,
-            y - avatar_img.height // 2
+        paste_pos = (
+            adj_x - avatar_img.width // 2,
+            adj_y - avatar_img.height // 2
         )
-        map_img.paste(avatar_img, position, avatar_img)
+        map_img.paste(avatar_img, paste_pos, avatar_img)
 
     # 保存并显示结果
     map_img.save("output.png")
